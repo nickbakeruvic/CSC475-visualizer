@@ -1,1 +1,3 @@
 *.swp
+visualizer_runtime_data
+venv
