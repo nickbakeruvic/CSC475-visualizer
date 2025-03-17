@@ -2,14 +2,21 @@ import tkinter as tk
 from tkinter import filedialog
 import pygame
 import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib.animation as animation
 import wave
 import pandas as pd
-import os 
+import os
 import shutil
 
 pygame.mixer.init()
+
+# Pygame setup
+WIDTH, HEIGHT = 1600, 800
+BAR_WIDTH = 20  # Width of each bar
+NUM_BARS = WIDTH // BAR_WIDTH  # Number of bars
+
+# Colors
+BACKGROUND_COLOR = (255, 255, 255)
+BAR_COLOR = (0, 124, 124)
 
 # Get function for files csv/dataframe
 def get_files():
@@ -44,35 +51,24 @@ def visualize_audio(file_path):
         signal = wave_file.readframes(num_samples)
         signal = np.frombuffer(signal, dtype=np.int16)
 
-        # Convert stereo to mono by averaging the two channels
         if wave_file.getnchannels() == 2:
-            signal = signal[::2] + signal[1::2]
+            signal = signal[::2] + signal[1::2]  # Convert stereo to mono
 
-        # Initialize matplotlib
-        fig, ax = plt.subplots(figsize=(8, 6))
-        x = np.linspace(0, framerate / 2, 512)  # Frequency range
+        screen = pygame.display.set_mode((WIDTH, HEIGHT))
+        pygame.display.set_caption("Audio Visualizer")
 
-        # Set chunk size for FFT
-        chunk_size = 1024
+        clock = pygame.time.Clock()
+        chunk_size = 1024  # Samples per frame
 
-        max_amplitude = 0
-        for start in range(0, len(signal), chunk_size):
-            end = start + chunk_size
-            if end > len(signal):
-                end = len(signal)
+        running = True
+        while running and pygame.mixer.music.get_busy():
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    running = False
 
-            spectrum = np.fft.fft(signal[start:end])  # Process in chunks
-            freq = np.abs(spectrum)[:len(spectrum) // 2]
-            max_amplitude = max(max_amplitude, np.max(freq))
-
-        def update_plot(i):
-            # Get the current position of the audio in milliseconds
-            audio_pos_ms = pygame.mixer.music.get_pos()  # In milliseconds
-            frame = int(audio_pos_ms / 1000 * framerate)  # Convert ms to frame position
-
-            # Make sure the frame stays within bounds
-            if frame >= len(signal):
-                return False
+            # Get current position in the song
+            audio_pos_ms = pygame.mixer.music.get_pos()  # Milliseconds
+            frame = int(audio_pos_ms / 1000 * framerate)
 
             start = frame
             end = start + chunk_size
@@ -81,34 +77,28 @@ def visualize_audio(file_path):
 
             # Process FFT in chunks
             spectrum = np.fft.fft(signal[start:end])
-            freq = np.abs(spectrum)[:len(spectrum) // 2]
+            freq_magnitudes = np.abs(spectrum[:len(spectrum) // 2])
 
-            # Draw new frame (clear old one)
-            ax.clear()
-            ax.plot(x, freq)
-            ax.set_ylim(0, max_amplitude * 1.1)  # Make sure the y-axis doesn't jump around
+            # Aggregate freqs into bars
+            bin_size = len(freq_magnitudes) // NUM_BARS
+            binned_freqs = [np.mean(freq_magnitudes[i * bin_size:(i + 1) * bin_size]) for i in range(NUM_BARS)]
 
-            ax.set_title("Frequency Spectrum")
-            ax.set_xlabel("Frequency (Hz)")
-            ax.set_ylabel("Amplitude")
+            # Normalize values to fit on screen
+            max_amplitude = max(binned_freqs) if max(binned_freqs) > 0 else 1
+            heights = [int((val / max_amplitude) * HEIGHT) for val in binned_freqs]
 
-            if pygame.mixer.music.get_busy():
-                return True
-            else:
-                return False
+            # Draw bars
+            screen.fill(BACKGROUND_COLOR)
+            for i in range(NUM_BARS):
+                x = i * BAR_WIDTH
+                y = HEIGHT - heights[i]
+                pygame.draw.rect(screen, BAR_COLOR, (x, y, BAR_WIDTH - 2, heights[i]))
 
-        # Actually draw our visualizer (will need to do something better)
-        ani = animation.FuncAnimation(fig, update_plot, interval=33, repeat=False)  # 30 FPS
+            pygame.display.flip()
+            clock.tick(30)  # 30 fps
 
-        def on_close(event):
-            pygame.mixer.music.stop()
-            plt.close(fig)
-
-        fig.canvas.mpl_connect('close_event', on_close)  # Bind the close event
-
-        # Show frame
-        plt.show()
-
+        pygame.display.quit()
+        pygame.mixer.music.stop()
 
 # Uploading file
 def upload():
@@ -154,7 +144,6 @@ upload_button.pack(pady=0, side="right")
 
 upload_button = tk.Button(menu_frame, text="Upload a file", command=upload)
 upload_button.pack(pady=0, side="left")
-
 menu_frame.pack(pady=5)
 
 # Make play buttons
