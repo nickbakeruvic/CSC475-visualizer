@@ -6,6 +6,8 @@ import wave
 import pandas as pd
 import os
 import shutil
+import librosa
+import time
 
 pygame.mixer.init()
 
@@ -17,6 +19,9 @@ NUM_BARS = WIDTH // BAR_WIDTH  # Number of bars
 # Colors
 BACKGROUND_COLOR = (255, 255, 255)
 BAR_COLOR = (0, 124, 124)
+
+# Sampling Rate
+SRATE = 44100
 
 # Get function for files csv/dataframe
 def get_files():
@@ -31,20 +36,30 @@ def get_files():
 def set_files(files):
     files.to_csv("visualizer_runtime_data/files.csv")
 
+def get_beats(file_path):
+    y, sr = librosa.load(file_path, sr=SRATE)  # Load entire file
+    onset_env = librosa.onset.onset_strength(y=y, sr=sr)
+    tempo, beats = librosa.beat.beat_track(onset_envelope=onset_env, sr=sr)
+    return librosa.frames_to_time(beats, sr=sr)  # Convert frames to seconds
+
 # Called by "Play" button
 def play_audio(file_path):
     try:
         pygame.mixer.music.load(file_path)
         pygame.mixer.music.play(loops=0, start=0.0)
         print(f"Playing: {file_path}")
+        beats = get_beats(file_path)
+
+        global start_time
+        start_time = time.time()
 
         # Trigger the frequency visualization
-        visualize_audio(file_path)
+        visualize_audio(file_path, beats)
     except Exception as e:
         print(f"Error playing the file: {e}")
 
 # Extract audio data from the file and play the animation
-def visualize_audio(file_path):
+def visualize_audio(file_path, beats):
     with wave.open(file_path, 'rb') as wave_file:
         framerate = wave_file.getframerate()
         num_samples = wave_file.getnframes()
@@ -60,6 +75,14 @@ def visualize_audio(file_path):
         clock = pygame.time.Clock()
         chunk_size = 1024  # Samples per frame
 
+        beat_index = 0 
+
+        # pulsing circle parameters
+        beat_pulse_radius = 5
+        beat_max_radius = 300
+        beat_min_radius = 0
+        beat_pulse_decay = 8
+
         running = True
         while running and pygame.mixer.music.get_busy():
             for event in pygame.event.get():
@@ -67,13 +90,24 @@ def visualize_audio(file_path):
                     running = False
 
             # Get current position in the song
-            audio_pos_ms = pygame.mixer.music.get_pos()  # Milliseconds
-            frame = int(audio_pos_ms / 1000 * framerate)
+            # audio_pos_ms = pygame.mixer.music.get_pos()  # Milliseconds
+            # audio_pos_sec = pygame.mixer.music.get_pos() / 1000.0  # Convert ms → sec
+            audio_pos_sec = time.time() - start_time  # time since playback started - changed to this for use with beat tracking, unsure if necessary but results seem better
+            # frame = int(audio_pos_ms / 1000 * framerate)
+            frame = int(audio_pos_sec * framerate)
 
             start = frame
             end = start + chunk_size
             if end > len(signal):
                 end = len(signal)
+
+            if beat_index < len(beats) and audio_pos_sec >= beats[beat_index]:
+                if beat_index % 2 == 0:
+                    beat_pulse_radius = beat_max_radius  # expand pulse
+                beat_index += 1  # next beat
+
+            beat_pulse_radius = max(beat_min_radius, beat_pulse_radius - beat_pulse_decay)  # shrink pulse
+
 
             # Process FFT in chunks
             spectrum = np.fft.fft(signal[start:end])
@@ -93,6 +127,13 @@ def visualize_audio(file_path):
                 x = i * BAR_WIDTH
                 y = HEIGHT - heights[i]
                 pygame.draw.rect(screen, BAR_COLOR, (x, y, BAR_WIDTH - 2, heights[i]))
+
+            # pygame.draw.circle(screen, (0, 255, 0), (WIDTH // 2, HEIGHT // 2), beat_pulse_radius) # opaque circle
+
+            # draw circle that is transparent
+            circle = pygame.Surface((beat_max_radius * 2, beat_max_radius * 2), pygame.SRCALPHA)
+            pygame.draw.circle(circle, (124, 91, 176, 64), (beat_max_radius, beat_max_radius), beat_pulse_radius)
+            screen.blit(circle, (WIDTH // 2 - beat_max_radius, HEIGHT // 2 - beat_max_radius))
 
             pygame.display.flip()
             clock.tick(30)  # 30 fps
