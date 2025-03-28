@@ -51,10 +51,11 @@ def get_beats(file_path):
 # Called by "Play" button
 def play_audio(file_path):
     try:
+        beats = get_beats(file_path)
+        print(f"Playing: {file_path}")
+
         pygame.mixer.music.load(file_path)
         pygame.mixer.music.play(loops=0, start=0.0)
-        print(f"Playing: {file_path}")
-        beats = get_beats(file_path)
 
         global start_time
         start_time = time.time()
