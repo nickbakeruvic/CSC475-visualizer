@@ -37,10 +37,16 @@ def set_files(files):
     files.to_csv("visualizer_runtime_data/files.csv")
 
 def get_beats(file_path):
-    y, sr = librosa.load(file_path, sr=SRATE)  # Load entire file
-    onset_env = librosa.onset.onset_strength(y=y, sr=sr)
-    tempo, beats = librosa.beat.beat_track(onset_envelope=onset_env, sr=sr)
-    return librosa.frames_to_time(beats, sr=sr)  # Convert frames to seconds
+    y, sr = librosa.load(file_path, sr=SRATE)
+
+    # Only beat track on the percussive components
+    y_harmonic, y_percussive = librosa.effects.hpss(y)
+    tempo, beat_frames = librosa.beat.beat_track(y=y_percussive, sr=sr)
+
+    # Convert frames to seconds
+    beat_times = librosa.frames_to_time(beat_frames, sr=sr)
+
+    return beat_times
 
 # Called by "Play" button
 def play_audio(file_path):
