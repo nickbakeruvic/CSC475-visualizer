@@ -96,6 +96,8 @@ def play_audio(file_path, visualizer):
             visualizer_1(file_path, beats)
         elif visualizer == 2:
             visualizer_2(file_path, beats)
+        elif visualizer == 3:
+            visualizer_3(file_path, beats)
     except Exception as e:
         print(f"Error playing the file: {e}")
 
@@ -222,11 +224,11 @@ def visualizer_2(file_path, beats):
             if frame_signal.size == 0:
                 volume = 0.1
             else:
-                volume = (np.sqrt(np.mean(frame_signal ** 2)) / 32767 + 0.1) * 200  # between 0.1 and ~330
+                volume = np.sqrt(np.mean(frame_signal ** 2)) / 32767  
             volume = float(volume)
 
             if pygame.time.get_ticks() % 1 == 0:
-                circles.append(min(volume, beat_max_radius))
+                circles.append(min((volume + 0.1) * 200, beat_max_radius))
 
             if beat_index < len(beats) and audio_pos_sec >= beats[beat_index]:
                 if beat_index % 2 == 0:
@@ -255,6 +257,115 @@ def visualizer_2(file_path, beats):
 
         pygame.display.quit()
         pygame.mixer.music.stop()
+
+def get_bass_treble_amplitudes(chunk):
+    # Compute FFT on the audio chunk
+    spectrum = np.fft.rfft(chunk)
+    freq_magnitudes = np.abs(spectrum)
+    
+    # Generate an array of frequencies corresponding to the FFT bins
+    freqs = np.fft.rfftfreq(len(chunk), d=1/SRATE)
+    
+    # Define frequency ranges (in Hz) for bass and treble
+    bass_range = (20, 250)
+    treble_range = (4000, 20000)
+    
+    # Find indices corresponding to the bass and treble ranges
+    bass_indices = np.where((freqs >= bass_range[0]) & (freqs <= bass_range[1]))
+    treble_indices = np.where((freqs >= treble_range[0]) & (freqs <= treble_range[1]))
+    
+    # Calculate the average amplitude for each range
+    bass_amp = np.mean(freq_magnitudes[bass_indices])
+    treble_amp = np.mean(freq_magnitudes[treble_indices])
+    
+    return bass_amp, treble_amp
+
+def visualizer_3(file_path, beats):
+
+    # Open the audio file
+    with wave.open(file_path, 'rb') as wave_file:
+        framerate = wave_file.getframerate()
+        num_samples = wave_file.getnframes()
+        signal = wave_file.readframes(num_samples)
+        signal = np.frombuffer(signal, dtype=np.int16)
+        
+        # Convert stereo to mono if needed
+        if wave_file.getnchannels() == 2:
+            signal = signal[::2] + signal[1::2]
+
+    # Set up the Pygame display
+    screen = pygame.display.set_mode((WIDTH, HEIGHT))
+    pygame.display.set_caption("Sine Wave Visualizer")
+    clock = pygame.time.Clock()
+    
+    # Visualization parameters
+    chunk_size = 1024  
+    phase = 0.0     
+    phase_2 = 0.0   
+    base_frequency = 2  
+    beat_index = 0 
+    color = 50
+    
+    running = True
+    while running and pygame.mixer.music.get_busy():
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                running = False
+
+        # Get the current position in the audio (in seconds)
+        audio_pos_sec = time.time() - start_time
+        frame = int(audio_pos_sec * framerate)
+        start = frame
+        end = start + chunk_size
+        if end > len(signal):
+            end = len(signal)
+
+        # Extract the current chunk and compute its volume
+        chunk = signal[start:end].astype(np.float32)
+        if chunk.size > 0:
+            volume = np.sqrt(np.mean(chunk ** 2)) / 32767.0
+            bass_amp, treble_amp = get_bass_treble_amplitudes(chunk)
+            bass_amp /= 10000000
+            treble_amp /= 10000000
+        else:
+            bass_amp, treble_amp, volume = 0
+
+        # Use the volume to modulate the amplitude of the sine wave
+        amplitude = volume * (HEIGHT / 3)  # scale amplitude to screen height
+
+        if beat_index < len(beats) and audio_pos_sec >= beats[beat_index]:
+            if beat_index % 2 == 0:
+                amplitude *= 1.5
+            beat_index += 1  # next beat
+
+        # Update the phase for smooth movement
+        phase_change = max(0.2 - bass_amp * 0.5, 0.02)
+        phase += phase_change
+        phase_2 += phase_change * 3
+        color += 0.2
+
+        # Generate x values (covering the whole screen)
+        x_vals = np.linspace(0, WIDTH, num=800)
+        x_vals_2 = np.linspace(0, WIDTH, num=800)
+        # Compute the sine wave's y values with modulation
+        y_vals = (HEIGHT / 2) + amplitude * np.sin(2 * np.pi * base_frequency * (x_vals / WIDTH) + phase)
+        y_vals_2 = (HEIGHT / 2) + amplitude * np.sin(2 * np.pi * base_frequency * (x_vals / WIDTH) + phase_2)
+
+        # Draw the sine wave
+        screen.fill(BACKGROUND_COLOR)
+        points = [(x, y) for x, y in zip(x_vals, y_vals)]
+        points_2 = [(x, y) for x, y in zip(x_vals_2, y_vals_2)]
+
+        r, g, b = colorsys.hsv_to_rgb((color % 100) * 0.01, 0.5, 0.5)
+        r, g, b = int(r * 255), int(g * 255), int(b * 255)
+        pygame.draw.lines(screen, (r, g, b), False, points, max(3, int(30 * bass_amp)))
+        pygame.draw.lines(screen, (r, g, b), False, points_2, max(3, int(30 * bass_amp)))
+
+        pygame.display.flip()
+        clock.tick(30)  # maintain 30 fps
+
+    pygame.display.quit()
+    pygame.mixer.music.stop()
 
 
 # Uploading file
@@ -290,6 +401,8 @@ def draw_play_buttons():
         song_label = tk.Label(song_frames[i], text=f"{files.index[i]}")
         song_label.pack(side = "left")
 
+        play_button_3 = tk.Button(song_frames[i], text="3", command=lambda file_path=files.iloc[i]["file_path"]: play_audio(file_path, 3))
+        play_button_3.pack(side = "right")
         play_button_2 = tk.Button(song_frames[i], text="2", command=lambda file_path=files.iloc[i]["file_path"]: play_audio(file_path, 2))
         play_button_2.pack(side = "right")
         play_button_1 = tk.Button(song_frames[i], text="1", command=lambda file_path=files.iloc[i]["file_path"]: play_audio(file_path, 1))
@@ -298,9 +411,11 @@ def draw_play_buttons():
         if files.iloc[i]["processed_path"] == "not processed":
             play_button_1["state"] = "disabled"
             play_button_2["state"] = "disabled"
+            play_button_3["state"] = "disabled"
         else:
             play_button_1["state"] = "normal"
             play_button_2["state"] = "normal"
+            play_button_3["state"] = "normal"
 
 def close():
     shutil.rmtree("visualizer_runtime_data") # For now we don't save anything permanently, for testing
