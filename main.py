@@ -10,6 +10,7 @@ import librosa
 import time
 from multiprocessing import Process
 import json
+import colorsys
 
 pygame.mixer.init()
 
@@ -115,13 +116,17 @@ def visualizer_1(file_path, beats):
         clock = pygame.time.Clock()
         chunk_size = 1024  # Samples per frame
 
-        beat_index = 0 
+        top_bar_colour_counter = 50
+        bottom_bar_colour_counter = 20
 
         running = True
         while running and pygame.mixer.music.get_busy():
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
                     running = False
+
+            top_bar_colour_counter += 0.1
+            bottom_bar_colour_counter += 0.2
 
             # Get current position in the song
             # audio_pos_ms = pygame.mixer.music.get_pos()  # Milliseconds
@@ -145,14 +150,20 @@ def visualizer_1(file_path, beats):
 
             # Normalize values to fit on screen
             max_amplitude = max(binned_freqs) if max(binned_freqs) > 0 else 1
-            heights = [int((val / max_amplitude) * HEIGHT) for val in binned_freqs]
+            heights = [int((val / max_amplitude) * (HEIGHT / 2)) for val in binned_freqs]
 
             # Draw bars
             screen.fill(BACKGROUND_COLOR)
             for i in range(NUM_BARS):
                 x = i * BAR_WIDTH
-                y = HEIGHT - heights[i]
-                pygame.draw.rect(screen, BAR_COLOR, (x, y, BAR_WIDTH - 2, heights[i]))
+                y = (HEIGHT / 2) - heights[i]
+                r, g, b = colorsys.hsv_to_rgb((top_bar_colour_counter % 100) * 0.01, 0.5, 0.5)
+                r, g, b = int(r * 255), int(g * 255), int(b * 255)
+                pygame.draw.rect(screen, (r, g, b), (x, y + (HEIGHT / 2), BAR_WIDTH - 2, heights[i]))
+
+                r, g, b = colorsys.hsv_to_rgb((bottom_bar_colour_counter % 100) * 0.01, 0.5, 0.5)
+                r, g, b = int(r * 255), int(g * 255), int(b * 255)
+                pygame.draw.rect(screen, (r, g, b), (x, 0, BAR_WIDTH - 2, heights[i]))
 
             pygame.display.flip()
             clock.tick(30)  # 30 fps
