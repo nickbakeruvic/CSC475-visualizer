@@ -15,7 +15,7 @@ import colorsys
 pygame.mixer.init()
 
 # Pygame setup
-WIDTH, HEIGHT = 1600, 800
+WIDTH, HEIGHT = 800, 400
 BAR_WIDTH = 20  # Width of each bar
 NUM_BARS = WIDTH // BAR_WIDTH  # Number of bars
 
@@ -189,11 +189,16 @@ def visualizer_2(file_path, beats):
 
         beat_index = 0 
 
+        print(signal)
+
         # pulsing circle parameters
         beat_pulse_radius = 5
-        beat_max_radius = 300
+        beat_max_radius = 200
         beat_min_radius = 0
         beat_pulse_decay = 8
+
+        circles = []
+        color = 50
 
         running = True
         while running and pygame.mixer.music.get_busy():
@@ -213,21 +218,37 @@ def visualizer_2(file_path, beats):
             if end > len(signal):
                 end = len(signal)
 
+            frame_signal = signal[start:end].astype(np.float32)
+            if frame_signal.size == 0:
+                volume = 0.1
+            else:
+                volume = (np.sqrt(np.mean(frame_signal ** 2)) / 32767 + 0.1) * 200  # between 0.1 and ~330
+            volume = float(volume)
+
+            if pygame.time.get_ticks() % 1 == 0:
+                circles.append(min(volume, beat_max_radius))
+
             if beat_index < len(beats) and audio_pos_sec >= beats[beat_index]:
                 if beat_index % 2 == 0:
-                    beat_pulse_radius = beat_max_radius  # expand pulse
+                    color += 10
                 beat_index += 1  # next beat
 
-            beat_pulse_radius = max(beat_min_radius, beat_pulse_radius - beat_pulse_decay)  # shrink pulse
+            # beat_pulse_radius = max(beat_min_radius, beat_pulse_radius - beat_pulse_decay)  # shrink pulse
 
             screen.fill(BACKGROUND_COLOR)
 
-            # pygame.draw.circle(screen, (0, 255, 0), (WIDTH // 2, HEIGHT // 2), beat_pulse_radius) # opaque circle
+            while len(circles) > 10:
+                del circles[0]
 
-            # draw circle that is transparent
-            circle = pygame.Surface((beat_max_radius * 2, beat_max_radius * 2), pygame.SRCALPHA)
-            pygame.draw.circle(circle, (124, 91, 176, 64), (beat_max_radius, beat_max_radius), beat_pulse_radius)
-            screen.blit(circle, (WIDTH // 2 - beat_max_radius, HEIGHT // 2 - beat_max_radius))
+            # pygame.draw.circle(screen, (0, 255, 0), (WIDTH // 2, HEIGHT // 2), beat_pulse_radius) # opaque circle
+            for i in range(len(circles)):
+                circle = pygame.Surface((beat_max_radius * 2, beat_max_radius * 2), pygame.SRCALPHA)
+                r, g, b = colorsys.hsv_to_rgb((color % 100) * 0.01, 0.5, 0.5)
+                r, g, b = int(r * 255), int(g * 255), int(b * 255)
+                pygame.draw.circle(circle, (r, g, b, 50), (beat_max_radius, beat_max_radius), circles[len(circles) - 1 - i])
+                # pygame.draw.circle(circle, (255, 255, 255), (beat_max_radius, beat_max_radius), (c - 5))
+                screen.blit(circle, (WIDTH // 2 - beat_max_radius, HEIGHT // 2 - beat_max_radius))
+                circles[i] -= 10
 
             pygame.display.flip()
             clock.tick(30)  # 30 fps
