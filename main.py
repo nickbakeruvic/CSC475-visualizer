@@ -8,6 +8,8 @@ import os
 import shutil
 import librosa
 import time
+from multiprocessing import Process
+import json
 
 pygame.mixer.init()
 
@@ -26,18 +28,35 @@ SRATE = 44100
 # Get function for files csv/dataframe
 def get_files():
     os.makedirs("visualizer_runtime_data/audio_files", exist_ok=True)
+    os.makedirs("visualizer_runtime_data/processed_audio", exist_ok=True)
     if os.path.isfile("visualizer_runtime_data/files.csv"):
         files = pd.read_csv("visualizer_runtime_data/files.csv", index_col=0)
     else:
-        files = pd.DataFrame(columns=["file_path"])
+        files = pd.DataFrame(columns=["file_path", "processed_path"])
 
     return files
 
 def set_files(files):
     files.to_csv("visualizer_runtime_data/files.csv")
 
+def process_upload(file_path, name):
+    processed_path = f"visualizer_runtime_data/processed_audio/{name}.json"
+
+    beats = get_beats(file_path)
+
+    with open(processed_path, "w") as f:
+        f.write(json.dumps({
+            "beats": beats.tolist()
+        }))
+
+    files = get_files()
+    files.loc[name, "processed_path"] = processed_path
+    set_files(files)
+
 def get_beats(file_path):
     y, sr = librosa.load(file_path, sr=SRATE)
+
+    print("getting beats")
 
     # Only beat track on the percussive components
     y_harmonic, y_percussive = librosa.effects.hpss(y)
@@ -46,12 +65,23 @@ def get_beats(file_path):
     # Convert frames to seconds
     beat_times = librosa.frames_to_time(beat_frames, sr=sr)
 
+    print("finished getting beats")
+
     return beat_times
+
+def get_file_name(file_path):
+    return file_path.split("/")[-1].split(".")[0]
+
+def get_processed_data(file_path):
+    files = get_files()
+    with open(files.loc[get_file_name(file_path), "processed_path"], "r") as f:
+        return json.loads(f.read())
 
 # Called by "Play" button
 def play_audio(file_path):
     try:
-        beats = get_beats(file_path)
+        processed_data = get_processed_data(file_path)
+        beats = processed_data["beats"]
         print(f"Playing: {file_path}")
 
         pygame.mixer.music.load(file_path)
@@ -154,50 +184,62 @@ def upload():
 
     # Parse file path input
     file_path = filedialog.askopenfilename(filetypes=[("WAV files", "*.wav")])
-    name = file_path.split("/")[-1].split(".")[0]
+    name = get_file_name(file_path)
     file_path = shutil.copyfile(file_path, "visualizer_runtime_data/audio_files/" + name + ".wav")
 
     # Parse song and add to csv's
     if file_path:
         files.loc[name, "file_path"] = file_path
-        print(files)
+        files.loc[name, "processed_path"] = "not processed"
+        set_files(files)
 
-    # Save modified csv's
-    set_files(files)
-    draw_play_buttons()
+        draw_play_buttons()
+
+        p = Process(target=process_upload, args=(file_path, name))
+        p.start()
 
 def draw_play_buttons():
     files = get_files()
     play_buttons = {}
     for widget in play_buttons_frame.winfo_children():
         widget.destroy()
-    for i in range(files.size):
-        print(files.iloc[i]["file_path"])
+    for i in range(files.shape[0]):
         play_buttons[i] = tk.Button(play_buttons_frame, text=f"Play {files.index[i]}", command=lambda file_path=files.iloc[i]["file_path"]: play_audio(file_path))
         play_buttons[i].pack(pady=5)
+        if files.iloc[i]["processed_path"] == "not processed":
+            play_buttons[i]["state"] = "disabled"
+        else:
+            play_buttons[i]["state"] = "normal"
 
 def close():
     shutil.rmtree("visualizer_runtime_data") # For now we don't save anything permanently, for testing
     quit()
 
-# Draw upload / play window
-root = tk.Tk()
-root.title("File Upload and Play with Visualizer")
-root.geometry("500x300")
+def check_processing_status():
+    draw_play_buttons()
+    root.after(1000, check_processing_status)  # check every second
 
-# Make quit and upload buttons
-menu_frame = tk.Frame(root)
-upload_button = tk.Button(menu_frame, text="Quit", command=close)
-upload_button.pack(pady=0, side="right")
+if __name__ == "__main__":
 
-upload_button = tk.Button(menu_frame, text="Upload a file", command=upload)
-upload_button.pack(pady=0, side="left")
-menu_frame.pack(pady=5)
+    # Draw upload / play window
+    root = tk.Tk()
+    root.title("File Upload and Play with Visualizer")
+    root.geometry("500x300")
 
-# Make play buttons
-play_buttons_frame = tk.Frame(root)
-play_buttons_frame.pack(pady=20)
-draw_play_buttons()
+    # Make quit and upload buttons
+    menu_frame = tk.Frame(root)
+    upload_button = tk.Button(menu_frame, text="Quit", command=close)
+    upload_button.pack(pady=0, side="right")
 
-# Run the Tkinter event loop
-root.mainloop()
+    upload_button = tk.Button(menu_frame, text="Upload a file", command=upload)
+    upload_button.pack(pady=0, side="left")
+    menu_frame.pack(pady=5)
+
+    # Make play buttons
+    play_buttons_frame = tk.Frame(root)
+    play_buttons_frame.pack(pady=20)
+    draw_play_buttons()
+
+    # Run the Tkinter event loop
+    root.after(1000, check_processing_status)
+    root.mainloop()
