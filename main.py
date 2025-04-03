@@ -78,7 +78,7 @@ def get_processed_data(file_path):
         return json.loads(f.read())
 
 # Called by "Play" button
-def play_audio(file_path):
+def play_audio(file_path, visualizer):
     try:
         processed_data = get_processed_data(file_path)
         beats = processed_data["beats"]
@@ -91,12 +91,76 @@ def play_audio(file_path):
         start_time = time.time()
 
         # Trigger the frequency visualization
-        visualize_audio(file_path, beats)
+        if visualizer == 1:
+            visualizer_1(file_path, beats)
+        elif visualizer == 2:
+            visualizer_2(file_path, beats)
     except Exception as e:
         print(f"Error playing the file: {e}")
 
 # Extract audio data from the file and play the animation
-def visualize_audio(file_path, beats):
+def visualizer_1(file_path, beats):
+    with wave.open(file_path, 'rb') as wave_file:
+        framerate = wave_file.getframerate()
+        num_samples = wave_file.getnframes()
+        signal = wave_file.readframes(num_samples)
+        signal = np.frombuffer(signal, dtype=np.int16)
+
+        if wave_file.getnchannels() == 2:
+            signal = signal[::2] + signal[1::2]  # Convert stereo to mono
+
+        screen = pygame.display.set_mode((WIDTH, HEIGHT))
+        pygame.display.set_caption("Audio Visualizer 1")
+
+        clock = pygame.time.Clock()
+        chunk_size = 1024  # Samples per frame
+
+        beat_index = 0 
+
+        running = True
+        while running and pygame.mixer.music.get_busy():
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    running = False
+
+            # Get current position in the song
+            # audio_pos_ms = pygame.mixer.music.get_pos()  # Milliseconds
+            # audio_pos_sec = pygame.mixer.music.get_pos() / 1000.0  # Convert ms → sec
+            audio_pos_sec = time.time() - start_time  # time since playback started - changed to this for use with beat tracking, unsure if necessary but results seem better
+            # frame = int(audio_pos_ms / 1000 * framerate)
+            frame = int(audio_pos_sec * framerate)
+
+            start = frame
+            end = start + chunk_size
+            if end > len(signal):
+                end = len(signal)
+
+            # Process FFT in chunks
+            spectrum = np.fft.fft(signal[start:end])
+            freq_magnitudes = np.abs(spectrum[:len(spectrum) // 2])
+
+            # Aggregate freqs into bars
+            bin_size = len(freq_magnitudes) // NUM_BARS
+            binned_freqs = [np.mean(freq_magnitudes[i * bin_size:(i + 1) * bin_size]) for i in range(NUM_BARS)]
+
+            # Normalize values to fit on screen
+            max_amplitude = max(binned_freqs) if max(binned_freqs) > 0 else 1
+            heights = [int((val / max_amplitude) * HEIGHT) for val in binned_freqs]
+
+            # Draw bars
+            screen.fill(BACKGROUND_COLOR)
+            for i in range(NUM_BARS):
+                x = i * BAR_WIDTH
+                y = HEIGHT - heights[i]
+                pygame.draw.rect(screen, BAR_COLOR, (x, y, BAR_WIDTH - 2, heights[i]))
+
+            pygame.display.flip()
+            clock.tick(30)  # 30 fps
+
+        pygame.display.quit()
+        pygame.mixer.music.stop()
+
+def visualizer_2(file_path, beats):
     with wave.open(file_path, 'rb') as wave_file:
         framerate = wave_file.getframerate()
         num_samples = wave_file.getnframes()
@@ -145,25 +209,7 @@ def visualize_audio(file_path, beats):
 
             beat_pulse_radius = max(beat_min_radius, beat_pulse_radius - beat_pulse_decay)  # shrink pulse
 
-
-            # Process FFT in chunks
-            spectrum = np.fft.fft(signal[start:end])
-            freq_magnitudes = np.abs(spectrum[:len(spectrum) // 2])
-
-            # Aggregate freqs into bars
-            bin_size = len(freq_magnitudes) // NUM_BARS
-            binned_freqs = [np.mean(freq_magnitudes[i * bin_size:(i + 1) * bin_size]) for i in range(NUM_BARS)]
-
-            # Normalize values to fit on screen
-            max_amplitude = max(binned_freqs) if max(binned_freqs) > 0 else 1
-            heights = [int((val / max_amplitude) * HEIGHT) for val in binned_freqs]
-
-            # Draw bars
             screen.fill(BACKGROUND_COLOR)
-            for i in range(NUM_BARS):
-                x = i * BAR_WIDTH
-                y = HEIGHT - heights[i]
-                pygame.draw.rect(screen, BAR_COLOR, (x, y, BAR_WIDTH - 2, heights[i]))
 
             # pygame.draw.circle(screen, (0, 255, 0), (WIDTH // 2, HEIGHT // 2), beat_pulse_radius) # opaque circle
 
@@ -177,6 +223,7 @@ def visualize_audio(file_path, beats):
 
         pygame.display.quit()
         pygame.mixer.music.stop()
+
 
 # Uploading file
 def upload():
@@ -200,16 +247,28 @@ def upload():
 
 def draw_play_buttons():
     files = get_files()
-    play_buttons = {}
+    song_frames = {}
     for widget in play_buttons_frame.winfo_children():
         widget.destroy()
     for i in range(files.shape[0]):
-        play_buttons[i] = tk.Button(play_buttons_frame, text=f"Play {files.index[i]}", command=lambda file_path=files.iloc[i]["file_path"]: play_audio(file_path))
-        play_buttons[i].pack(pady=5)
+        song_frames[i] = tk.Frame(play_buttons_frame)
+        song_frames[i].pack(pady=5, fill="x")
+        # song_frames[i].grid_columnconfigure((0,1,2), weight=1)
+
+        song_label = tk.Label(song_frames[i], text=f"{files.index[i]}")
+        song_label.pack(side = "left")
+
+        play_button_2 = tk.Button(song_frames[i], text="2", command=lambda file_path=files.iloc[i]["file_path"]: play_audio(file_path, 2))
+        play_button_2.pack(side = "right")
+        play_button_1 = tk.Button(song_frames[i], text="1", command=lambda file_path=files.iloc[i]["file_path"]: play_audio(file_path, 1))
+        play_button_1.pack(side = "right")
+
         if files.iloc[i]["processed_path"] == "not processed":
-            play_buttons[i]["state"] = "disabled"
+            play_button_1["state"] = "disabled"
+            play_button_2["state"] = "disabled"
         else:
-            play_buttons[i]["state"] = "normal"
+            play_button_1["state"] = "normal"
+            play_button_2["state"] = "normal"
 
 def close():
     shutil.rmtree("visualizer_runtime_data") # For now we don't save anything permanently, for testing
@@ -237,7 +296,7 @@ if __name__ == "__main__":
 
     # Make play buttons
     play_buttons_frame = tk.Frame(root)
-    play_buttons_frame.pack(pady=20)
+    play_buttons_frame.pack(pady=20, padx=20, fill="x")
     draw_play_buttons()
 
     # Run the Tkinter event loop
