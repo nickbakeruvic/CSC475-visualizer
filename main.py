@@ -11,6 +11,7 @@ import time
 from multiprocessing import Process
 import json
 import colorsys
+import scipy.signal
 
 pygame.mixer.init()
 
@@ -44,10 +45,12 @@ def process_upload(file_path, name):
     processed_path = f"visualizer_runtime_data/processed_audio/{name}.json"
 
     beats = get_beats(file_path)
+    kicks = get_kicks(file_path)
 
     with open(processed_path, "w") as f:
         f.write(json.dumps({
-            "beats": beats.tolist()
+            "beats": beats.tolist(),
+            "kicks": kicks.tolist()
         }))
 
     files = get_files()
@@ -70,6 +73,48 @@ def get_beats(file_path):
 
     return beat_times
 
+import librosa
+import scipy.signal
+import numpy as np
+
+import numpy as np
+import librosa
+import scipy.signal
+import matplotlib.pyplot as plt
+
+def get_kicks(file_path, SRATE=44100, plot=False):
+    y, sr = librosa.load(file_path, sr=SRATE)
+
+    # compute STFT
+    n_fft = 2048
+    hop_length = 512
+    S = librosa.stft(y, n_fft=n_fft, hop_length=hop_length)
+    S_db = librosa.amplitude_to_db(np.abs(S), ref=np.max)
+
+    # look at low frequencies where kicks usually are
+    freq_cutoff = 150
+    freqs = librosa.fft_frequencies(sr=sr, n_fft=n_fft)
+    low_freq_mask = freqs <= freq_cutoff
+    S_low = S_db[low_freq_mask, :]
+
+    # sum energy across low frequencies (collapsing to 1D time-series)
+    kick_energy = np.sum(S_low, axis=0)
+
+    # smooth the energy curve to reduce noise
+    kick_smoothed = scipy.signal.savgol_filter(kick_energy, window_length=5, polyorder=3)
+
+    # adaptive thresholding
+    threshold = np.percentile(kick_smoothed, 95) - 5  # Adjust percentile as needed
+
+    # find peaks (min_distance avoids double-detections)
+    min_distance = int(0.1 * sr / hop_length)  # 100ms between kicks
+    peaks, _ = scipy.signal.find_peaks(kick_smoothed, height=threshold, distance=min_distance)
+
+    kick_times = librosa.frames_to_time(peaks, sr=sr, hop_length=hop_length)
+
+    return kick_times
+
+
 def get_file_name(file_path):
     return file_path.split("/")[-1].split(".")[0]
 
@@ -83,6 +128,7 @@ def play_audio(file_path, visualizer):
     try:
         processed_data = get_processed_data(file_path)
         beats = processed_data["beats"]
+        kicks = processed_data["kicks"]
         print(f"Playing: {file_path}")
 
         pygame.mixer.music.load(file_path)
@@ -93,7 +139,7 @@ def play_audio(file_path, visualizer):
 
         # Trigger the frequency visualization
         if visualizer == 1:
-            visualizer_1(file_path, beats)
+            visualizer_1(file_path, beats, kicks)
         elif visualizer == 2:
             visualizer_2(file_path, beats)
         elif visualizer == 3:
@@ -102,7 +148,7 @@ def play_audio(file_path, visualizer):
         print(f"Error playing the file: {e}")
 
 # Extract audio data from the file and play the animation
-def visualizer_1(file_path, beats):
+def visualizer_1(file_path, beats, kicks):
     with wave.open(file_path, 'rb') as wave_file:
         framerate = wave_file.getframerate()
         num_samples = wave_file.getnframes()
@@ -120,6 +166,8 @@ def visualizer_1(file_path, beats):
 
         top_bar_colour_counter = 50
         bottom_bar_colour_counter = 20
+
+        kick_index = 0
 
         running = True
         while running and pygame.mixer.music.get_busy():
@@ -141,6 +189,13 @@ def visualizer_1(file_path, beats):
             end = start + chunk_size
             if end > len(signal):
                 end = len(signal)
+
+            # check if current time is near the next kick time
+            draw_kick_square = False
+            if kick_index < len(kicks) and abs(audio_pos_sec - kicks[kick_index]) < 0.05:
+                draw_kick_square = True
+                kick_index += 1  
+
 
             # Process FFT in chunks
             spectrum = np.fft.fft(signal[start:end])
@@ -166,6 +221,14 @@ def visualizer_1(file_path, beats):
                 r, g, b = colorsys.hsv_to_rgb((bottom_bar_colour_counter % 100) * 0.01, 0.5, 0.5)
                 r, g, b = int(r * 255), int(g * 255), int(b * 255)
                 pygame.draw.rect(screen, (r, g, b), (x, 0, BAR_WIDTH - 2, heights[i]))
+
+            
+            if draw_kick_square:
+                square_size = 50
+                square_color = (255, 0, 0)
+                square_pos = ((WIDTH - square_size) // 2, (HEIGHT - square_size) // 2)
+                pygame.draw.rect(screen, square_color, (*square_pos, square_size, square_size))
+
 
             pygame.display.flip()
             clock.tick(30)  # 30 fps
