@@ -1,4 +1,5 @@
 import tkinter as tk
+from tkinter import ttk
 from tkinter import filedialog
 import pygame
 import numpy as np
@@ -26,6 +27,21 @@ BAR_COLOR = (0, 124, 124)
 
 # Sampling Rate
 SRATE = 44100
+
+visualizer = 1
+
+def set_visualizer(num):
+    global visualizer
+    visualizer = num
+    draw_visualizer()
+
+def get_visualizer():
+    global visualizer
+    return visualizer
+
+def draw_visualizer():
+    global visualizer
+    set_mode_label.configure(text=f"Current Mode: {visualizer}")
 
 # Get function for files csv/dataframe
 def get_files():
@@ -119,7 +135,7 @@ def get_processed_data(file_path):
         return json.loads(f.read())
 
 # Called by "Play" button
-def play_audio(file_path, visualizer):
+def play_audio(file_path):
     try:
         processed_data = get_processed_data(file_path)
         beats = processed_data["beats"]
@@ -477,28 +493,27 @@ def draw_play_buttons():
     for widget in play_buttons_frame.winfo_children():
         widget.destroy()
     for i in range(files.shape[0]):
-        song_frames[i] = tk.Frame(play_buttons_frame)
+        song_frames[i] = tk.Frame(play_buttons_frame, background="white")
         song_frames[i].pack(pady=5, fill="x")
         # song_frames[i].grid_columnconfigure((0,1,2), weight=1)
 
-        song_label = tk.Label(song_frames[i], text=f"{files.index[i]}")
+        song_label = ttk.Label(song_frames[i], text=f"{files.index[i]}", background="white")
         song_label.pack(side = "left")
 
-        play_button_3 = tk.Button(song_frames[i], text="3", command=lambda file_path=files.iloc[i]["file_path"]: play_audio(file_path, 3))
-        play_button_3.pack(side = "right")
-        play_button_2 = tk.Button(song_frames[i], text="2", command=lambda file_path=files.iloc[i]["file_path"]: play_audio(file_path, 2))
-        play_button_2.pack(side = "right")
-        play_button_1 = tk.Button(song_frames[i], text="1", command=lambda file_path=files.iloc[i]["file_path"]: play_audio(file_path, 1))
-        play_button_1.pack(side = "right")
+        play_button = ttk.Button(song_frames[i], text="Play", command=lambda file_path=files.iloc[i]["file_path"]: play_audio(file_path), padding=0, width=5)
+        play_button.pack(side = "right", padx=10)
+
+        # play_button_3 = ttk.Button(song_frames[i], text="3", command=lambda file_path=files.iloc[i]["file_path"]: play_audio(file_path, 3), padding=0, width=5)
+        # play_button_3.pack(side = "right", padx=10)
+        # play_button_2 = ttk.Button(song_frames[i], text="2", command=lambda file_path=files.iloc[i]["file_path"]: play_audio(file_path, 2), padding=0, width=5)
+        # play_button_2.pack(side = "right", padx=10)
+        # play_button_1 = ttk.Button(song_frames[i], text="1", command=lambda file_path=files.iloc[i]["file_path"]: play_audio(file_path, 1), padding=0, width=5)
+        # play_button_1.pack(side = "right", padx=10)
 
         if files.iloc[i]["processed_path"] == "not processed":
-            play_button_1["state"] = "disabled"
-            play_button_2["state"] = "disabled"
-            play_button_3["state"] = "disabled"
+            play_button["state"] = "disabled"
         else:
-            play_button_1["state"] = "normal"
-            play_button_2["state"] = "normal"
-            play_button_3["state"] = "normal"
+            play_button["state"] = "normal"
 
 def close():
     shutil.rmtree("visualizer_runtime_data") # For now we don't save anything permanently, for testing
@@ -512,22 +527,54 @@ if __name__ == "__main__":
 
     # Draw upload / play window
     root = tk.Tk()
+    root.configure(background='white')
+
+    # root.tk.call('lappend', 'auto_path', 'awthemes-10.4.0')
+    # root.tk.call('package', 'require', 'awdark')
+
+    # Styling
+    style = ttk.Style(root)
+    style.theme_use('clam')
+    # style.configure('Modern.TButton',
+    #             foreground='white',
+    #             background='#0078D7',  # This might be overridden by the native theme on some OSs
+    #             padding=0)
+    # style.configure()
+    
     root.title("File Upload and Play with Visualizer")
-    root.geometry("500x300")
+    root.geometry("700x400")
 
     # Make quit and upload buttons
     menu_frame = tk.Frame(root)
-    upload_button = tk.Button(menu_frame, text="Quit", command=close)
+    menu_frame.configure(background="white")
+    upload_button = ttk.Button(menu_frame, text="Quit", command=close)
     upload_button.pack(pady=0, side="right")
 
-    upload_button = tk.Button(menu_frame, text="Upload a file", command=upload)
+    upload_button = ttk.Button(menu_frame, text="Upload a file", command=upload)
     upload_button.pack(pady=0, side="left")
     menu_frame.pack(pady=5)
 
     # Make play buttons
     play_buttons_frame = tk.Frame(root)
+    play_buttons_frame.configure(background="white", borderwidth=2, relief="sunken")
     play_buttons_frame.pack(pady=20, padx=20, fill="x")
     draw_play_buttons()
+
+    # Mode buttons
+    mode_buttons_frame = tk.Frame(root)
+    mode_buttons_frame.configure(background="white")
+    mode_label = ttk.Label(mode_buttons_frame, text=f"Choose Visualizer Mode:", background="white")
+    mode_label.pack(side = "left", padx=10)
+    play_button_1 = ttk.Button(mode_buttons_frame, command=lambda num=1: set_visualizer(num), text="1", padding=0, width=5)
+    play_button_1.pack(side = "left", padx=10)
+    play_button_2 = ttk.Button(mode_buttons_frame, command=lambda num=2: set_visualizer(num), text="2", padding=0, width=5)
+    play_button_2.pack(side = "left", padx=10)
+    play_button_3 = ttk.Button(mode_buttons_frame, command=lambda num=3: set_visualizer(num), text="3", padding=0, width=5)
+    play_button_3.pack(side = "left", padx=10)
+    mode_buttons_frame.pack(pady=20, padx=20, fill="x")
+
+    set_mode_label = ttk.Label(mode_buttons_frame, text=f"Current Mode: {get_visualizer()}", background="white")
+    set_mode_label.pack(padx=10, side="right")
 
     # Run the Tkinter event loop
     root.after(1000, check_processing_status)
