@@ -45,12 +45,14 @@ def process_upload(file_path, name):
     processed_path = f"visualizer_runtime_data/processed_audio/{name}.json"
 
     beats = get_beats(file_path)
-    kicks = get_kicks(file_path)
+    kicks, snares, hihats = get_drum_hits(file_path)
 
     with open(processed_path, "w") as f:
         f.write(json.dumps({
             "beats": beats.tolist(),
-            "kicks": kicks.tolist()
+            "kicks": kicks.tolist(),
+            "snares": snares.tolist(),
+            "hihats": hihats.tolist()
         }))
 
     files = get_files()
@@ -73,46 +75,39 @@ def get_beats(file_path):
 
     return beat_times
 
-import librosa
-import scipy.signal
-import numpy as np
-
-import numpy as np
-import librosa
-import scipy.signal
-import matplotlib.pyplot as plt
-
-def get_kicks(file_path, SRATE=44100, plot=False):
+def get_drum_hits(file_path, SRATE=44100):
     y, sr = librosa.load(file_path, sr=SRATE)
-
-    # compute STFT
     n_fft = 2048
     hop_length = 512
     S = librosa.stft(y, n_fft=n_fft, hop_length=hop_length)
     S_db = librosa.amplitude_to_db(np.abs(S), ref=np.max)
-
-    # look at low frequencies where kicks usually are
-    freq_cutoff = 150
     freqs = librosa.fft_frequencies(sr=sr, n_fft=n_fft)
-    low_freq_mask = freqs <= freq_cutoff
-    S_low = S_db[low_freq_mask, :]
 
-    # sum energy across low frequencies (collapsing to 1D time-series)
-    kick_energy = np.sum(S_low, axis=0)
+    def detect_hits(S_db, freq_range, percentile=95, min_ms=100, smooth=5):
+        if smooth <= 3:
+            smooth = 5
+        if smooth % 2 == 0:
+            smooth += 1
+        mask = (freqs >= freq_range[0]) & (freqs <= freq_range[1])
+        energy = np.sum(S_db[mask, :], axis=0)
+        smoothed = scipy.signal.savgol_filter(energy, window_length=smooth, polyorder=3)
+        threshold = np.percentile(smoothed, percentile)
+        min_distance = int(min_ms * sr / hop_length / 1000)
+        peaks, _ = scipy.signal.find_peaks(smoothed, height=threshold, distance=min_distance)
+        return librosa.frames_to_time(peaks, sr=sr, hop_length=hop_length)
 
-    # smooth the energy curve to reduce noise
-    kick_smoothed = scipy.signal.savgol_filter(kick_energy, window_length=5, polyorder=3)
+    # kick and snare with spectral energy method
+    kicks = detect_hits(S_db, (20, 150), percentile=95, min_ms=100)
+    snares = detect_hits(S_db, (150, 2500), percentile=97, min_ms=150)
 
-    # adaptive thresholding
-    threshold = np.percentile(kick_smoothed, 95) - 5  # Adjust percentile as needed
+    # hihats with onset strength method
+    onset_env = librosa.onset.onset_strength(y=y, sr=sr, hop_length=hop_length, fmax=15000, aggregate=np.median)
+    threshold = np.percentile(onset_env, 93)
+    min_distance = int(0.015 * sr / hop_length)  # ~20ms
+    peaks, _ = scipy.signal.find_peaks(onset_env, height=threshold, distance=min_distance)
+    hihats = librosa.frames_to_time(peaks, sr=sr, hop_length=hop_length)
 
-    # find peaks (min_distance avoids double-detections)
-    min_distance = int(0.1 * sr / hop_length)  # 100ms between kicks
-    peaks, _ = scipy.signal.find_peaks(kick_smoothed, height=threshold, distance=min_distance)
-
-    kick_times = librosa.frames_to_time(peaks, sr=sr, hop_length=hop_length)
-
-    return kick_times
+    return kicks, snares, hihats
 
 
 def get_file_name(file_path):
@@ -129,6 +124,8 @@ def play_audio(file_path, visualizer):
         processed_data = get_processed_data(file_path)
         beats = processed_data["beats"]
         kicks = processed_data["kicks"]
+        snares = processed_data["snares"]
+        hihats = processed_data["hihats"]
         print(f"Playing: {file_path}")
 
         pygame.mixer.music.load(file_path)
@@ -139,7 +136,7 @@ def play_audio(file_path, visualizer):
 
         # Trigger the frequency visualization
         if visualizer == 1:
-            visualizer_1(file_path, beats, kicks)
+            visualizer_1(file_path, beats, kicks, snares, hihats)
         elif visualizer == 2:
             visualizer_2(file_path, beats)
         elif visualizer == 3:
@@ -148,7 +145,7 @@ def play_audio(file_path, visualizer):
         print(f"Error playing the file: {e}")
 
 # Extract audio data from the file and play the animation
-def visualizer_1(file_path, beats, kicks):
+def visualizer_1(file_path, beats, kicks, snares, hihats):
     with wave.open(file_path, 'rb') as wave_file:
         framerate = wave_file.getframerate()
         num_samples = wave_file.getnframes()
@@ -168,6 +165,8 @@ def visualizer_1(file_path, beats, kicks):
         bottom_bar_colour_counter = 20
 
         kick_index = 0
+        snare_index = 0
+        hihat_index = 0
 
         running = True
         while running and pygame.mixer.music.get_busy():
@@ -195,6 +194,16 @@ def visualizer_1(file_path, beats, kicks):
             if kick_index < len(kicks) and abs(audio_pos_sec - kicks[kick_index]) < 0.05:
                 draw_kick_square = True
                 kick_index += 1  
+
+            draw_snare_circle = False
+            if snare_index < len(snares) and abs(audio_pos_sec - snares[snare_index]) < 0.05:
+                draw_snare_circle = True
+                snare_index += 1
+
+            draw_hihat_triangle = False
+            if hihat_index < len(hihats) and abs(audio_pos_sec - hihats[hihat_index]) < 0.05:
+                draw_hihat_triangle = True
+                hihat_index += 1
 
 
             # Process FFT in chunks
@@ -228,6 +237,17 @@ def visualizer_1(file_path, beats, kicks):
                 square_color = (255, 0, 0)
                 square_pos = ((WIDTH - square_size) // 2, (HEIGHT - square_size) // 2)
                 pygame.draw.rect(screen, square_color, (*square_pos, square_size, square_size))
+
+            if draw_snare_circle:
+                circle_radius = 50
+                circle_color = (0, 0, 255)
+                circle_pos = (WIDTH // 3, HEIGHT // 2)
+                pygame.draw.circle(screen, circle_color, circle_pos, circle_radius)
+
+            if draw_hihat_triangle:
+                triangle_color = (0, 255, 0)
+                triangle_pos = [(WIDTH * 2 // 3, HEIGHT // 2 - 50), (WIDTH * 2 // 3 - 50, HEIGHT // 2 + 50), (WIDTH * 2 // 3 + 50, HEIGHT // 2 + 50)]
+                pygame.draw.polygon(screen, triangle_color, triangle_pos)
 
 
             pygame.display.flip()
