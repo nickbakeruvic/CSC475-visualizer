@@ -3,6 +3,7 @@ from tkinter import ttk
 from tkinter import filedialog
 import pygame
 import numpy as np
+from numpy.fft import fft
 import wave
 import pandas as pd
 import os
@@ -13,6 +14,7 @@ from multiprocessing import Process
 import json
 import colorsys
 import scipy.signal
+import random
 
 pygame.mixer.init()
 
@@ -157,6 +159,9 @@ def play_audio(file_path):
             visualizer_2(file_path, beats)
         elif visualizer == 3:
             visualizer_3(file_path, beats)
+        elif visualizer == 4:
+            visualizer_4(file_path, beats, kicks, snares, hihats)
+
     except Exception as e:
         print(f"Error playing the file: {e}")
 
@@ -466,6 +471,165 @@ def visualizer_3(file_path, beats):
     pygame.display.quit()
     pygame.mixer.music.stop()
 
+def visualizer_4(file_path, beats, kicks, snares, hihats):
+    class Particle:
+        def __init__(self, x, y, vx, vy, size, color, lifetime):
+            self.x = x
+            self.y = y
+            self.vx = vx
+            self.vy = vy
+            self.size = size
+            self.color = color
+            self.lifetime = lifetime
+            self.initial_lifetime = lifetime
+
+        def update(self):
+            self.x += self.vx
+            self.y += self.vy
+            self.lifetime -= 1
+
+        def draw(self, screen):
+            if self.lifetime > 0:
+                alpha = max(0, int(255 * (self.lifetime / self.initial_lifetime)))
+                particle_surface = pygame.Surface((self.size * 2, self.size * 2), pygame.SRCALPHA)
+                pygame.draw.circle(particle_surface, (*self.color, alpha), (self.size, self.size), self.size)
+                screen.blit(particle_surface, (int(self.x - self.size), int(self.y - self.size)))
+
+    # Loading audio file
+    with wave.open(file_path, 'rb') as wave_file:
+        framerate = wave_file.getframerate()
+        num_samples = wave_file.getnframes()
+        signal = wave_file.readframes(num_samples)
+        signal = np.frombuffer(signal, dtype=np.int16)
+
+        if wave_file.getnchannels() == 2:
+            signal = signal[::2] + signal[1::2]  # Convert stereo to mono
+
+        screen = pygame.display.set_mode((WIDTH, HEIGHT))
+        pygame.display.set_caption("Drum Beats Visualizer")
+        clock = pygame.time.Clock()
+
+        chunk_size = 1024
+        kick_index = snare_index = hihat_index = beat_index = 0
+        particles = []
+        start_time = time.time()
+
+        background_change_duration = 5 # frames
+        background_change_current = 0
+
+        # Separate / measure frequency bands for background changes
+        def get_frequency_bands(signal, chunk_size):
+            chunk = signal[:chunk_size]
+            fft_result = fft(chunk)
+            magnitude = np.abs(fft_result)[:chunk_size // 2]
+            if np.max(magnitude) != 0:
+                magnitude = magnitude / np.max(magnitude)
+
+            low_energy = np.sum(magnitude[:50])
+            mid_energy = np.sum(magnitude[50:300])
+            high_energy = np.sum(magnitude[300:])
+
+            return low_energy, mid_energy, high_energy
+
+        running = True
+        while running and pygame.mixer.music.get_busy():
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    running = False
+
+            audio_pos_sec = time.time() - start_time
+            frame = int(audio_pos_sec * framerate)
+            start = frame
+            end = min(start + chunk_size, len(signal))
+            center_x, center_y = random.uniform(WIDTH // 4, WIDTH * 3 // 4), random.uniform(HEIGHT // 4, HEIGHT * 3 // 4)
+            drum_hit = False
+            chunk = signal[start:end].astype(np.float32)
+
+            # Measure RMS to scale background change visual amplitude
+            if chunk.size > 0:
+                rms = np.sqrt(np.mean(chunk**2)) / 32767  # Normalize to [0,1]
+            else:
+                rms = 0
+
+            # Blend low, mid, and high colors together based on the amplitude
+            # in those respective frequencies
+            low_energy, mid_energy, high_energy = get_frequency_bands(signal[start:end], chunk_size)
+
+            # Some random colors
+            low_color = np.array([105, 34, 255])
+            mid_color = np.array([53, 255, 138])
+            high_color = np.array([255, 59, 77])
+
+            total_energy = low_energy + mid_energy + high_energy
+            if total_energy == 0:
+                weights = np.array([0, 0, 0])
+            else:
+                weights = np.array([
+                    low_energy / total_energy,
+                    mid_energy / total_energy,
+                    high_energy / total_energy
+                ])
+            mixed_color = (low_color * weights[0] +
+               mid_color * weights[1] +
+               high_color * weights[2])
+
+            brightness = min(0.5, rms * 2 * (0.1 + weights[1] + weights[2]))
+            final_color = np.clip(mixed_color * brightness, 0, 255).astype(int)
+
+            background_color = tuple(final_color)
+
+            # Spawn different particles based on each drum type
+            if kick_index < len(kicks) and abs(audio_pos_sec - kicks[kick_index]) < 0.05:
+                for _ in range(15):
+                    angle = random.uniform(0, 2 * np.pi)
+                    speed = random.uniform(2, 6)
+                    particles.append(Particle(center_x, center_y, speed * np.cos(angle),
+                                              speed * np.sin(angle), random.randint(5, 10),
+                                              (255, 50, 50), 30))
+                kick_index += 1
+                drum_hit = True
+
+            if snare_index < len(snares) and abs(audio_pos_sec - snares[snare_index]) < 0.05:
+                for _ in range(30):
+                    angle = random.uniform(0, 2 * np.pi)
+                    radius = random.uniform(30, 70)
+                    speed = random.uniform(2, 6)
+                    particles.append(Particle(center_x + radius * np.cos(angle),
+                                              center_y + radius * np.sin(angle),
+                                              speed * np.cos(angle), speed * np.sin(angle),
+                                              3,(100, 100, 255), 40))
+                snare_index += 1
+                drum_hit = True
+
+            if hihat_index < len(hihats) and abs(audio_pos_sec - hihats[hihat_index]) < 0.03:
+                for _ in range(20):
+                    particles.append(Particle(random.randint(0, WIDTH), random.randint(0, HEIGHT),
+                                              0, 0, 2, (200, 255, 200), 10))
+                hihat_index += 1
+                drum_hit = True
+
+            # Change background only on each beat or drum hit
+            if drum_hit or (beat_index < len(beats) and abs(audio_pos_sec - beats[beat_index]) < 0.05):
+                background_change_current = 0
+                beat_index += 1
+            if background_change_current < background_change_duration:
+                background_change_current += 1
+                screen.fill(background_color)
+            else:
+                screen.fill((0, 0, 0))
+
+            # Draw all the particles
+            for p in particles[:]:
+                p.update()
+                p.draw(screen)
+                if p.lifetime <= 0:
+                    particles.remove(p)
+
+            pygame.display.flip()
+            clock.tick(30)
+
+        pygame.display.quit()
+        pygame.mixer.music.stop()
 
 # Uploading file
 def upload():
@@ -571,6 +735,8 @@ if __name__ == "__main__":
     play_button_2.pack(side = "left", padx=10)
     play_button_3 = ttk.Button(mode_buttons_frame, command=lambda num=3: set_visualizer(num), text="3", padding=0, width=5)
     play_button_3.pack(side = "left", padx=10)
+    play_button_4 = ttk.Button(mode_buttons_frame, command=lambda num=4: set_visualizer(num), text="4", padding=0, width=5)
+    play_button_4.pack(side = "left", padx=10)
     mode_buttons_frame.pack(pady=20, padx=20, fill="x")
 
     set_mode_label = ttk.Label(mode_buttons_frame, text=f"Current Mode: {get_visualizer()}", background="white")
