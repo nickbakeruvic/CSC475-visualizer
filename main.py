@@ -30,6 +30,8 @@ BAR_COLOR = (0, 124, 124)
 # Sampling Rate
 SRATE = 44100
 
+MEL_SIZE = 20
+
 visualizer = 1
 
 def set_visualizer(num):
@@ -138,32 +140,32 @@ def get_processed_data(file_path):
 
 # Called by "Play" button
 def play_audio(file_path):
-    try:
-        processed_data = get_processed_data(file_path)
-        beats = processed_data["beats"]
-        kicks = processed_data["kicks"]
-        snares = processed_data["snares"]
-        hihats = processed_data["hihats"]
-        print(f"Playing: {file_path}")
+    # try:
+    processed_data = get_processed_data(file_path)
+    beats = processed_data["beats"]
+    kicks = processed_data["kicks"]
+    snares = processed_data["snares"]
+    hihats = processed_data["hihats"]
+    print(f"Playing: {file_path}")
 
-        pygame.mixer.music.load(file_path)
-        pygame.mixer.music.play(loops=0, start=0.0)
+    pygame.mixer.music.load(file_path)
+    pygame.mixer.music.play(loops=0, start=0.0)
 
-        global start_time
-        start_time = time.time()
+    global start_time
+    start_time = time.time()
 
-        # Trigger the frequency visualization
-        if visualizer == 1:
-            visualizer_1(file_path, beats, kicks, snares, hihats)
-        elif visualizer == 2:
-            visualizer_2(file_path, beats)
-        elif visualizer == 3:
-            visualizer_3(file_path, beats)
-        elif visualizer == 4:
-            visualizer_4(file_path, beats, kicks, snares, hihats)
+    # Trigger the frequency visualization
+    if visualizer == 1:
+        visualizer_1(file_path, beats, kicks, snares, hihats)
+    elif visualizer == 2:
+        visualizer_2(file_path, beats)
+    elif visualizer == 3:
+        visualizer_3(file_path, beats)
+    elif visualizer == 4:
+        visualizer_4(file_path, beats, kicks, snares, hihats)
 
-    except Exception as e:
-        print(f"Error playing the file: {e}")
+    # except Exception as e:
+    #     print(f"Error playing the file: {e}")
 
 # Extract audio data from the file and play the animation
 def visualizer_1(file_path, beats, kicks, snares, hihats):
@@ -277,6 +279,22 @@ def visualizer_1(file_path, beats, kicks, snares, hihats):
         pygame.display.quit()
         pygame.mixer.music.stop()
 
+# From https://github.com/iranroman/musicinformationretrieval.com/blob/gh-pages/realtime_spectrogram.py
+def compute_spectrogram(chunk):
+
+    # Choose the frequency range of your log-spectrogram.
+    F_LO = librosa.note_to_hz('C2')
+    F_HI = librosa.note_to_hz('C9')
+    M = librosa.filters.mel(sr = SRATE, n_fft = len(chunk), n_mels = WIDTH / MEL_SIZE, fmin=F_LO, fmax=F_HI)
+
+    # Compute real FFT.
+    x_fft = np.fft.rfft(chunk)
+
+    # Compute mel spectrum.
+    melspectrum = M.dot(abs(x_fft))
+
+    return melspectrum
+
 def visualizer_2(file_path, beats):
     with wave.open(file_path, 'rb') as wave_file:
         framerate = wave_file.getframerate()
@@ -291,7 +309,8 @@ def visualizer_2(file_path, beats):
         pygame.display.set_caption("Audio Visualizer")
 
         clock = pygame.time.Clock()
-        chunk_size = 1024  # Samples per frame
+        # chunk_size = 1024  # Samples per frame
+        chunk_size = 4096  # Samples per frame
 
         beat_index = 0 
 
@@ -304,6 +323,7 @@ def visualizer_2(file_path, beats):
         beat_pulse_decay = 8
 
         circles = []
+        spects = []
         color = 50
 
         running = True
@@ -329,6 +349,8 @@ def visualizer_2(file_path, beats):
                 volume = 0.1
             else:
                 volume = np.sqrt(np.mean(frame_signal ** 2)) / 32767  
+                spectrogram = compute_spectrogram(frame_signal)
+                spects.insert(0, spectrogram)
             volume = float(volume)
 
             if pygame.time.get_ticks() % 1 == 0:
@@ -346,11 +368,20 @@ def visualizer_2(file_path, beats):
             while len(circles) > 10:
                 del circles[0]
 
+            # Draw spectrogram
+            r, g, b = colorsys.hsv_to_rgb((color % 100) * 0.01, 0.5, 0.5)
+            r, g, b = int(r * 255), int(g * 255), int(b * 255)
+            rectangle = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
+            pygame.draw.rect(rectangle, (255, 255, 255), pygame.Rect(0, 0, WIDTH, HEIGHT))
+            for i in range(len(spects)):
+                for j in range(len(spects[i])):
+                    if spects[i][j] > 90000:
+                        pygame.draw.rect(rectangle, (r, g, b, 50), pygame.Rect(j * MEL_SIZE, HEIGHT - (MEL_SIZE * i), MEL_SIZE, MEL_SIZE))
+            screen.blit(rectangle, (0, 0))
+
             # pygame.draw.circle(screen, (0, 255, 0), (WIDTH // 2, HEIGHT // 2), beat_pulse_radius) # opaque circle
             for i in range(len(circles)):
                 circle = pygame.Surface((beat_max_radius * 2, beat_max_radius * 2), pygame.SRCALPHA)
-                r, g, b = colorsys.hsv_to_rgb((color % 100) * 0.01, 0.5, 0.5)
-                r, g, b = int(r * 255), int(g * 255), int(b * 255)
                 pygame.draw.circle(circle, (r, g, b, 50), (beat_max_radius, beat_max_radius), circles[len(circles) - 1 - i])
                 # pygame.draw.circle(circle, (255, 255, 255), (beat_max_radius, beat_max_radius), (c - 5))
                 screen.blit(circle, (WIDTH // 2 - beat_max_radius, HEIGHT // 2 - beat_max_radius))
@@ -362,13 +393,13 @@ def visualizer_2(file_path, beats):
         pygame.display.quit()
         pygame.mixer.music.stop()
 
-def get_bass_treble_amplitudes(chunk):
+def get_bass_treble_amplitudes(frame_signal):
     # Compute FFT on the audio chunk
-    spectrum = np.fft.rfft(chunk)
+    spectrum = np.fft.rfft(frame_signal)
     freq_magnitudes = np.abs(spectrum)
     
     # Generate an array of frequencies corresponding to the FFT bins
-    freqs = np.fft.rfftfreq(len(chunk), d=1/SRATE)
+    freqs = np.fft.rfftfreq(len(frame_signal), d=1/SRATE)
     
     # Define frequency ranges (in Hz) for bass and treble
     bass_range = (20, 250)
@@ -425,10 +456,10 @@ def visualizer_3(file_path, beats):
             end = len(signal)
 
         # Extract the current chunk and compute its volume
-        chunk = signal[start:end].astype(np.float32)
-        if chunk.size > 0:
-            volume = np.sqrt(np.mean(chunk ** 2)) / 32767.0
-            bass_amp, treble_amp = get_bass_treble_amplitudes(chunk)
+        frame_signal = signal[start:end].astype(np.float32)
+        if frame_signal.size > 0:
+            volume = np.sqrt(np.mean(frame_signal ** 2)) / 32767.0
+            bass_amp, treble_amp = get_bass_treble_amplitudes(frame_signal)
             bass_amp /= 10000000
             treble_amp /= 10000000
         else:
