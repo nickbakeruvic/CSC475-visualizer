@@ -140,7 +140,6 @@ def get_processed_data(file_path):
 
 # Called by "Play" button
 def play_audio(file_path):
-    # try:
     processed_data = get_processed_data(file_path)
     beats = processed_data["beats"]
     kicks = processed_data["kicks"]
@@ -163,9 +162,6 @@ def play_audio(file_path):
         visualizer_3(file_path, beats)
     elif visualizer == 4:
         visualizer_4(file_path, beats, kicks, snares, hihats)
-
-    # except Exception as e:
-    #     print(f"Error playing the file: {e}")
 
 # Extract audio data from the file and play the animation
 def visualizer_1(file_path, beats, kicks, snares, hihats):
@@ -201,10 +197,7 @@ def visualizer_1(file_path, beats, kicks, snares, hihats):
             bottom_bar_colour_counter += 0.2
 
             # Get current position in the song
-            # audio_pos_ms = pygame.mixer.music.get_pos()  # Milliseconds
-            # audio_pos_sec = pygame.mixer.music.get_pos() / 1000.0  # Convert ms → sec
             audio_pos_sec = time.time() - start_time  # time since playback started - changed to this for use with beat tracking, unsure if necessary but results seem better
-            # frame = int(audio_pos_ms / 1000 * framerate)
             frame = int(audio_pos_sec * framerate)
 
             start = frame
@@ -227,7 +220,6 @@ def visualizer_1(file_path, beats, kicks, snares, hihats):
             if hihat_index < len(hihats) and abs(audio_pos_sec - hihats[hihat_index]) < 0.05:
                 draw_hihat_triangle = True
                 hihat_index += 1
-
 
             # Process FFT in chunks
             spectrum = np.fft.fft(signal[start:end])
@@ -254,7 +246,6 @@ def visualizer_1(file_path, beats, kicks, snares, hihats):
                 r, g, b = int(r * 255), int(g * 255), int(b * 255)
                 pygame.draw.rect(screen, (r, g, b), (x, 0, BAR_WIDTH - 2, heights[i]))
 
-            
             if draw_kick_square:
                 square_size = 50
                 square_color = (255, 0, 0)
@@ -272,7 +263,6 @@ def visualizer_1(file_path, beats, kicks, snares, hihats):
                 triangle_pos = [(WIDTH * 2 // 3, HEIGHT // 2 - 50), (WIDTH * 2 // 3 - 50, HEIGHT // 2 + 50), (WIDTH * 2 // 3 + 50, HEIGHT // 2 + 50)]
                 pygame.draw.polygon(screen, triangle_color, triangle_pos)
 
-
             pygame.display.flip()
             clock.tick(30)  # 30 fps
 
@@ -282,15 +272,15 @@ def visualizer_1(file_path, beats, kicks, snares, hihats):
 # From https://github.com/iranroman/musicinformationretrieval.com/blob/gh-pages/realtime_spectrogram.py
 def compute_spectrogram(chunk):
 
-    # Choose the frequency range of your log-spectrogram.
+    # Choose the frequency range of your log-spectrogram
     F_LO = librosa.note_to_hz('C2')
     F_HI = librosa.note_to_hz('C9')
     M = librosa.filters.mel(sr = SRATE, n_fft = len(chunk), n_mels = WIDTH / MEL_SIZE, fmin=F_LO, fmax=F_HI)
 
-    # Compute real FFT.
+    # Compute real FFT
     x_fft = np.fft.rfft(chunk)
 
-    # Compute mel spectrum.
+    # Compute mel spectrum
     melspectrum = M.dot(abs(x_fft))
 
     return melspectrum
@@ -309,7 +299,6 @@ def visualizer_2(file_path, beats):
         pygame.display.set_caption("Audio Visualizer")
 
         clock = pygame.time.Clock()
-        # chunk_size = 1024  # Samples per frame
         chunk_size = 4096  # Samples per frame
 
         beat_index = 0 
@@ -317,10 +306,7 @@ def visualizer_2(file_path, beats):
         print(signal)
 
         # pulsing circle parameters
-        beat_pulse_radius = 5
         beat_max_radius = 200
-        beat_min_radius = 0
-        beat_pulse_decay = 8
 
         circles = []
         spects = []
@@ -333,10 +319,7 @@ def visualizer_2(file_path, beats):
                     running = False
 
             # Get current position in the song
-            # audio_pos_ms = pygame.mixer.music.get_pos()  # Milliseconds
-            # audio_pos_sec = pygame.mixer.music.get_pos() / 1000.0  # Convert ms → sec
             audio_pos_sec = time.time() - start_time  # time since playback started - changed to this for use with beat tracking, unsure if necessary but results seem better
-            # frame = int(audio_pos_ms / 1000 * framerate)
             frame = int(audio_pos_sec * framerate)
 
             start = frame
@@ -361,8 +344,6 @@ def visualizer_2(file_path, beats):
                     color += 10
                 beat_index += 1  # next beat
 
-            # beat_pulse_radius = max(beat_min_radius, beat_pulse_radius - beat_pulse_decay)  # shrink pulse
-
             screen.fill(BACKGROUND_COLOR)
 
             while len(circles) > 10:
@@ -379,11 +360,9 @@ def visualizer_2(file_path, beats):
                         pygame.draw.rect(rectangle, (r, g, b, 50), pygame.Rect(j * MEL_SIZE, HEIGHT - (MEL_SIZE * i), MEL_SIZE, MEL_SIZE))
             screen.blit(rectangle, (0, 0))
 
-            # pygame.draw.circle(screen, (0, 255, 0), (WIDTH // 2, HEIGHT // 2), beat_pulse_radius) # opaque circle
             for i in range(len(circles)):
                 circle = pygame.Surface((beat_max_radius * 2, beat_max_radius * 2), pygame.SRCALPHA)
                 pygame.draw.circle(circle, (r, g, b, 50), (beat_max_radius, beat_max_radius), circles[len(circles) - 1 - i])
-                # pygame.draw.circle(circle, (255, 255, 255), (beat_max_radius, beat_max_radius), (c - 5))
                 screen.blit(circle, (WIDTH // 2 - beat_max_radius, HEIGHT // 2 - beat_max_radius))
                 circles[i] -= 10
 
@@ -690,20 +669,12 @@ def draw_play_buttons():
     for i in range(files.shape[0]):
         song_frames[i] = tk.Frame(play_buttons_frame, background="white")
         song_frames[i].pack(pady=5, fill="x")
-        # song_frames[i].grid_columnconfigure((0,1,2), weight=1)
 
         song_label = ttk.Label(song_frames[i], text=f"{files.index[i]}", background="white")
         song_label.pack(side = "left")
 
         play_button = ttk.Button(song_frames[i], text="Play", command=lambda file_path=files.iloc[i]["file_path"]: play_audio(file_path), padding=0, width=5)
         play_button.pack(side = "right", padx=10)
-
-        # play_button_3 = ttk.Button(song_frames[i], text="3", command=lambda file_path=files.iloc[i]["file_path"]: play_audio(file_path, 3), padding=0, width=5)
-        # play_button_3.pack(side = "right", padx=10)
-        # play_button_2 = ttk.Button(song_frames[i], text="2", command=lambda file_path=files.iloc[i]["file_path"]: play_audio(file_path, 2), padding=0, width=5)
-        # play_button_2.pack(side = "right", padx=10)
-        # play_button_1 = ttk.Button(song_frames[i], text="1", command=lambda file_path=files.iloc[i]["file_path"]: play_audio(file_path, 1), padding=0, width=5)
-        # play_button_1.pack(side = "right", padx=10)
 
         if files.iloc[i]["processed_path"] == "not processed":
             play_button["state"] = "disabled"
@@ -724,17 +695,9 @@ if __name__ == "__main__":
     root = tk.Tk()
     root.configure(background='white')
 
-    # root.tk.call('lappend', 'auto_path', 'awthemes-10.4.0')
-    # root.tk.call('package', 'require', 'awdark')
-
     # Styling
     style = ttk.Style(root)
     style.theme_use('clam')
-    # style.configure('Modern.TButton',
-    #             foreground='white',
-    #             background='#0078D7',  # This might be overridden by the native theme on some OSs
-    #             padding=0)
-    # style.configure()
     
     root.title("File Upload and Play with Visualizer")
     root.geometry("700x400")
