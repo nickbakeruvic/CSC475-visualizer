@@ -519,8 +519,9 @@ def visualizer_4(file_path, beats, kicks, snares, hihats):
             frame = int(audio_pos_sec * framerate)
             start = frame
             end = min(start + chunk_size, len(signal))
+
+            # Spawn particles at a random place not too close to the edges of the screen
             center_x, center_y = random.uniform(WIDTH // 4, WIDTH * 3 // 4), random.uniform(HEIGHT // 4, HEIGHT * 3 // 4)
-            drum_hit = False
             chunk = signal[start:end].astype(np.float32)
 
             # Measure RMS to scale background change visual amplitude
@@ -533,7 +534,9 @@ def visualizer_4(file_path, beats, kicks, snares, hihats):
             # in those respective frequencies
             low_energy, mid_energy, high_energy = get_frequency_bands(signal[start:end], chunk_size)
 
-            # Some random colors
+            # Colors to be part of the final background. Low is mainly blue,
+            # mid is mainly green, high is mainly red. The other non-main values
+            # for each color were random, tweaked based on what looks best.
             low_color = np.array([105, 34, 255])
             mid_color = np.array([53, 255, 138])
             high_color = np.array([255, 59, 77])
@@ -557,6 +560,7 @@ def visualizer_4(file_path, beats, kicks, snares, hihats):
             background_color = tuple(final_color)
 
             # Spawn different particles based on each drum type
+            # Generate random angles and speeds for each particle (drums and snares)
             if kick_index < len(kicks) and abs(audio_pos_sec - kicks[kick_index]) < 0.05:
                 for _ in range(15):
                     angle = random.uniform(0, 2 * np.pi)
@@ -565,7 +569,6 @@ def visualizer_4(file_path, beats, kicks, snares, hihats):
                                               speed * np.sin(angle), random.randint(5, 10),
                                               (255, 50, 50), 30))
                 kick_index += 1
-                drum_hit = True
 
             if snare_index < len(snares) and abs(audio_pos_sec - snares[snare_index]) < 0.05:
                 for _ in range(30):
@@ -577,17 +580,15 @@ def visualizer_4(file_path, beats, kicks, snares, hihats):
                                               speed * np.cos(angle), speed * np.sin(angle),
                                               3,(100, 100, 255), 40))
                 snare_index += 1
-                drum_hit = True
 
             if hihat_index < len(hihats) and abs(audio_pos_sec - hihats[hihat_index]) < 0.03:
                 for _ in range(20):
                     particles.append(Particle(random.randint(0, WIDTH), random.randint(0, HEIGHT),
                                               0, 0, 2, (200, 255, 200), 10))
                 hihat_index += 1
-                drum_hit = True
 
-            # Change background only on each beat or drum hit
-            if drum_hit or (beat_index < len(beats) and abs(audio_pos_sec - beats[beat_index]) < 0.05):
+            # Flash a background color based on the blend above on each beat
+            if beat_index < len(beats) and abs(audio_pos_sec - beats[beat_index]) < 0.05:
                 background_change_current = 0
                 beat_index += 1
             if background_change_current < background_change_duration:
