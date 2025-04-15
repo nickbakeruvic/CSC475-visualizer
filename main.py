@@ -18,20 +18,16 @@ import random
 
 pygame.mixer.init()
 
-# Pygame setup
+# Define constants
 WIDTH, HEIGHT = 800, 400
-BAR_WIDTH = 20  # Width of each bar
-NUM_BARS = WIDTH // BAR_WIDTH  # Number of bars
-
-# Colors
+BAR_WIDTH = 20 
+NUM_BARS = WIDTH // BAR_WIDTH 
 BACKGROUND_COLOR = (255, 255, 255)
 BAR_COLOR = (0, 124, 124)
-
-# Sampling Rate
 SRATE = 44100
-
 MEL_SIZE = 20
 
+# Visualizer selection variable
 visualizer = 1
 
 def set_visualizer(num):
@@ -61,6 +57,7 @@ def get_files():
 def set_files(files):
     files.to_csv("visualizer_runtime_data/files.csv")
 
+# Process a file upload, getting beats and locations of various drums
 def process_upload(file_path, name):
     processed_path = f"visualizer_runtime_data/processed_audio/{name}.json"
 
@@ -79,22 +76,20 @@ def process_upload(file_path, name):
     files.loc[name, "processed_path"] = processed_path
     set_files(files)
 
+# Get location in song of beats 
 def get_beats(file_path):
     y, sr = librosa.load(file_path, sr=SRATE)
 
-    print("getting beats")
-
     # Only beat track on the percussive components
-    y_harmonic, y_percussive = librosa.effects.hpss(y)
-    tempo, beat_frames = librosa.beat.beat_track(y=y_percussive, sr=sr)
+    _, y_percussive = librosa.effects.hpss(y)
+    _, beat_frames = librosa.beat.beat_track(y=y_percussive, sr=sr)
 
     # Convert frames to seconds
     beat_times = librosa.frames_to_time(beat_frames, sr=sr)
 
-    print("finished getting beats")
-
     return beat_times
 
+# Get location in song of drum hits
 def get_drum_hits(file_path, SRATE=44100):
     y, sr = librosa.load(file_path, sr=SRATE)
     n_fft = 2048
@@ -129,16 +124,17 @@ def get_drum_hits(file_path, SRATE=44100):
 
     return kicks, snares, hihats
 
-
+# Parse file path to find the name of the song
 def get_file_name(file_path):
     return file_path.split("/")[-1].split(".")[0]
 
+# Return part of files csv related to the particular file path specified, as JSON
 def get_processed_data(file_path):
     files = get_files()
     with open(files.loc[get_file_name(file_path), "processed_path"], "r") as f:
         return json.loads(f.read())
 
-# Called by "Play" button
+# Begin visualizer, triggered by "Play" buttons
 def play_audio(file_path):
     processed_data = get_processed_data(file_path)
     beats = processed_data["beats"]
@@ -153,7 +149,6 @@ def play_audio(file_path):
     global start_time
     start_time = time.time()
 
-    # Trigger the frequency visualization
     if visualizer == 1:
         visualizer_1(file_path, beats, kicks, snares, hihats)
     elif visualizer == 2:
@@ -163,7 +158,7 @@ def play_audio(file_path):
     elif visualizer == 4:
         visualizer_4(file_path, beats, kicks, snares, hihats)
 
-# Extract audio data from the file and play the animation
+# Visualizer 1 is the EQ graph
 def visualizer_1(file_path, beats, kicks, snares, hihats):
     with wave.open(file_path, 'rb') as wave_file:
         framerate = wave_file.getframerate()
@@ -183,10 +178,6 @@ def visualizer_1(file_path, beats, kicks, snares, hihats):
         top_bar_colour_counter = 50
         bottom_bar_colour_counter = 20
 
-        kick_index = 0
-        snare_index = 0
-        hihat_index = 0
-
         running = True
         while running and pygame.mixer.music.get_busy():
             for event in pygame.event.get():
@@ -204,22 +195,6 @@ def visualizer_1(file_path, beats, kicks, snares, hihats):
             end = start + chunk_size
             if end > len(signal):
                 end = len(signal)
-
-            # check if current time is near the next kick time
-            draw_kick_square = False
-            if kick_index < len(kicks) and abs(audio_pos_sec - kicks[kick_index]) < 0.05:
-                draw_kick_square = True
-                kick_index += 1  
-
-            draw_snare_circle = False
-            if snare_index < len(snares) and abs(audio_pos_sec - snares[snare_index]) < 0.05:
-                draw_snare_circle = True
-                snare_index += 1
-
-            draw_hihat_triangle = False
-            if hihat_index < len(hihats) and abs(audio_pos_sec - hihats[hihat_index]) < 0.05:
-                draw_hihat_triangle = True
-                hihat_index += 1
 
             # Process FFT in chunks
             spectrum = np.fft.fft(signal[start:end])
@@ -246,23 +221,6 @@ def visualizer_1(file_path, beats, kicks, snares, hihats):
                 r, g, b = int(r * 255), int(g * 255), int(b * 255)
                 pygame.draw.rect(screen, (r, g, b), (x, 0, BAR_WIDTH - 2, heights[i]))
 
-            if draw_kick_square:
-                square_size = 50
-                square_color = (255, 0, 0)
-                square_pos = ((WIDTH - square_size) // 2, (HEIGHT - square_size) // 2)
-                pygame.draw.rect(screen, square_color, (*square_pos, square_size, square_size))
-
-            if draw_snare_circle:
-                circle_radius = 50
-                circle_color = (0, 0, 255)
-                circle_pos = (WIDTH // 3, HEIGHT // 2)
-                pygame.draw.circle(screen, circle_color, circle_pos, circle_radius)
-
-            if draw_hihat_triangle:
-                triangle_color = (0, 255, 0)
-                triangle_pos = [(WIDTH * 2 // 3, HEIGHT // 2 - 50), (WIDTH * 2 // 3 - 50, HEIGHT // 2 + 50), (WIDTH * 2 // 3 + 50, HEIGHT // 2 + 50)]
-                pygame.draw.polygon(screen, triangle_color, triangle_pos)
-
             pygame.display.flip()
             clock.tick(30)  # 30 fps
 
@@ -285,6 +243,7 @@ def compute_spectrogram(chunk):
 
     return melspectrum
 
+# Visualizer 2 uses beat locations, volume information, and spectrogram calculations to create pulsing circle with spectrogram in the background
 def visualizer_2(file_path, beats):
     with wave.open(file_path, 'rb') as wave_file:
         framerate = wave_file.getframerate()
@@ -327,6 +286,7 @@ def visualizer_2(file_path, beats):
             if end > len(signal):
                 end = len(signal)
 
+            # Set current frame and get information from it
             frame_signal = signal[start:end].astype(np.float32)
             if frame_signal.size == 0:
                 volume = 0.1
@@ -336,9 +296,11 @@ def visualizer_2(file_path, beats):
                 spects.insert(0, spectrogram)
             volume = float(volume)
 
+            # Append a new circle to the circles list if 1 second has passed
             if pygame.time.get_ticks() % 1 == 0:
                 circles.append(min((volume + 0.1) * 200, beat_max_radius))
 
+            # If a beat hit then change colour of spectogram and circles
             if beat_index < len(beats) and audio_pos_sec >= beats[beat_index]:
                 if beat_index % 2 == 0:
                     color += 10
@@ -346,10 +308,11 @@ def visualizer_2(file_path, beats):
 
             screen.fill(BACKGROUND_COLOR)
 
+            # Clean up circles array to remove old circles
             while len(circles) > 10:
                 del circles[0]
 
-            # Draw spectrogram
+            # Compute colour RGB and draw spectrogram
             r, g, b = colorsys.hsv_to_rgb((color % 100) * 0.01, 0.5, 0.5)
             r, g, b = int(r * 255), int(g * 255), int(b * 255)
             rectangle = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
@@ -360,6 +323,7 @@ def visualizer_2(file_path, beats):
                         pygame.draw.rect(rectangle, (r, g, b, 50), pygame.Rect(j * MEL_SIZE, HEIGHT - (MEL_SIZE * i), MEL_SIZE, MEL_SIZE))
             screen.blit(rectangle, (0, 0))
 
+            # Draw pulsing circles
             for i in range(len(circles)):
                 circle = pygame.Surface((beat_max_radius * 2, beat_max_radius * 2), pygame.SRCALPHA)
                 pygame.draw.circle(circle, (r, g, b, 50), (beat_max_radius, beat_max_radius), circles[len(circles) - 1 - i])
@@ -372,6 +336,7 @@ def visualizer_2(file_path, beats):
         pygame.display.quit()
         pygame.mixer.music.stop()
 
+# Get the amplitudes of bass and treble in a given frame signal
 def get_bass_treble_amplitudes(frame_signal):
     # Compute FFT on the audio chunk
     spectrum = np.fft.rfft(frame_signal)
@@ -394,6 +359,7 @@ def get_bass_treble_amplitudes(frame_signal):
     
     return bass_amp, treble_amp
 
+# Visualizer 3 uses bass and treble amplitude, overall volume, and beat locations to draw pulsing sin waves
 def visualizer_3(file_path, beats):
 
     # Open the audio file
@@ -452,7 +418,7 @@ def visualizer_3(file_path, beats):
                 amplitude *= 1.5
             beat_index += 1  # next beat
 
-        # Update the phase for smooth movement
+        # Update the phase and colour of the sin waves
         phase_change = max(0.2 - bass_amp * 0.5, 0.02)
         phase += phase_change
         phase_2 += phase_change * 3
@@ -461,7 +427,7 @@ def visualizer_3(file_path, beats):
         # Generate x values (covering the whole screen)
         x_vals = np.linspace(0, WIDTH, num=800)
         x_vals_2 = np.linspace(0, WIDTH, num=800)
-        # Compute the sine wave's y values with modulation
+        # Compute the sine wave's y values 
         y_vals = (HEIGHT / 2) + amplitude * np.sin(2 * np.pi * base_frequency * (x_vals / WIDTH) + phase)
         y_vals_2 = (HEIGHT / 2) + amplitude * np.sin(2 * np.pi * base_frequency * (x_vals / WIDTH) + phase_2)
 
@@ -470,6 +436,7 @@ def visualizer_3(file_path, beats):
         points = [(x, y) for x, y in zip(x_vals, y_vals)]
         points_2 = [(x, y) for x, y in zip(x_vals_2, y_vals_2)]
 
+        # Compute colour RGB and draw sin waves
         r, g, b = colorsys.hsv_to_rgb((color % 100) * 0.01, 0.5, 0.5)
         r, g, b = int(r * 255), int(g * 255), int(b * 255)
         pygame.draw.lines(screen, (r, g, b), False, points, max(3, int(30 * bass_amp)))
@@ -481,6 +448,7 @@ def visualizer_3(file_path, beats):
     pygame.display.quit()
     pygame.mixer.music.stop()
 
+# Visualizer 4 uses the drum and beat locations to create a particle effect in time with the music
 def visualizer_4(file_path, beats, kicks, snares, hihats):
     class Particle:
         def __init__(self, x, y, vx, vy, size, color, lifetime):
@@ -656,16 +624,22 @@ def upload():
         files.loc[name, "processed_path"] = "not processed"
         set_files(files)
 
+        # Reload play buttons now that we have the new song added to the files csv
         draw_play_buttons()
 
+        # Start a subprocess which will process the new upload, getting beats and drum locations
         p = Process(target=process_upload, args=(file_path, name))
         p.start()
 
+# Draw play buttons and song labels, keeping track of which files are ready to be played
 def draw_play_buttons():
     files = get_files()
     song_frames = {}
+
+    # Clear existing buttons and labels
     for widget in play_buttons_frame.winfo_children():
         widget.destroy()
+
     for i in range(files.shape[0]):
         song_frames[i] = tk.Frame(play_buttons_frame, background="white")
         song_frames[i].pack(pady=5, fill="x")
@@ -681,10 +655,12 @@ def draw_play_buttons():
         else:
             play_button["state"] = "normal"
 
+# Removes all stored data for the program
 def close():
     shutil.rmtree("visualizer_runtime_data") # For now we don't save anything permanently, for testing
     quit()
 
+# Continuously check if new files are ready to be played
 def check_processing_status():
     draw_play_buttons()
     root.after(1000, check_processing_status)  # check every second
@@ -733,6 +709,7 @@ if __name__ == "__main__":
     play_button_4.pack(side = "left", padx=10)
     mode_buttons_frame.pack(pady=20, padx=20, fill="x")
 
+    # Mode label (currently selected mode)
     set_mode_label = ttk.Label(mode_buttons_frame, text=f"Current Mode: {get_visualizer()}", background="white")
     set_mode_label.pack(padx=10, side="right")
 
