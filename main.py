@@ -503,9 +503,9 @@ def visualizer_4(file_path, beats, kicks, snares, hihats):
             if np.max(magnitude) != 0:
                 magnitude = magnitude / np.max(magnitude)
 
-            low_energy = np.sum(magnitude[:50])
-            mid_energy = np.sum(magnitude[50:300])
-            high_energy = np.sum(magnitude[300:])
+            low_energy = np.sum(magnitude[:10])
+            mid_energy = np.sum(magnitude[10:150])
+            high_energy = np.sum(magnitude[150:])
 
             return low_energy, mid_energy, high_energy
 
