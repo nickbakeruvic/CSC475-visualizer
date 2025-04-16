@@ -230,7 +230,7 @@ def visualizer_1(file_path, beats, kicks, snares, hihats):
 # From https://github.com/iranroman/musicinformationretrieval.com/blob/gh-pages/realtime_spectrogram.py
 def compute_spectrogram(chunk):
 
-    # Choose the frequency range of your log-spectrogram
+    # Choose the frequency range of your spectrogram
     F_LO = librosa.note_to_hz('C2')
     F_HI = librosa.note_to_hz('C9')
     M = librosa.filters.mel(sr = SRATE, n_fft = len(chunk), n_mels = WIDTH / MEL_SIZE, fmin=F_LO, fmax=F_HI)
@@ -503,9 +503,9 @@ def visualizer_4(file_path, beats, kicks, snares, hihats):
             if np.max(magnitude) != 0:
                 magnitude = magnitude / np.max(magnitude)
 
-            low_energy = np.sum(magnitude[:50])
-            mid_energy = np.sum(magnitude[50:300])
-            high_energy = np.sum(magnitude[300:])
+            low_energy = np.sum(magnitude[:10])
+            mid_energy = np.sum(magnitude[10:150])
+            high_energy = np.sum(magnitude[150:])
 
             return low_energy, mid_energy, high_energy
 
