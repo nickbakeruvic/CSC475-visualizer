@@ -118,7 +118,7 @@ def get_drum_hits(file_path, SRATE=44100):
     # hihats with onset strength method
     onset_env = librosa.onset.onset_strength(y=y, sr=sr, hop_length=hop_length, fmax=15000, aggregate=np.median)
     threshold = np.percentile(onset_env, 93)
-    min_distance = int(0.015 * sr / hop_length)  # ~20ms
+    min_distance = int(0.015 * sr / hop_length)  # ~15ms
     peaks, _ = scipy.signal.find_peaks(onset_env, height=threshold, distance=min_distance)
     hihats = librosa.frames_to_time(peaks, sr=sr, hop_length=hop_length)
 
